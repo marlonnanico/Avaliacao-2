@@ -146,14 +146,51 @@ export async function onRequestGet(context) {
 
   } else {
 
-    const redirect =
-      `${context.env.PUBLIC_BASE_URL}/oauth/callback/github`;
+  const redirect =
+    `${context.env.PUBLIC_BASE_URL}/oauth/callback/github`;
 
-    authorizationUrl =
-      new URL(
-        "https://github.com/login/oauth/authorize"
-      );
+  authorizationUrl =
+    new URL(
+      "https://github.com/login/oauth/authorize"
+    );
 
-    authorizationUrl.searchParams.set(
-      "client_id",
-      context
+  authorizationUrl.searchParams.set(
+    "client_id",
+    context.env.GITHUB_CLIENT_ID
+  );
+
+  authorizationUrl.searchParams.set(
+    "redirect_uri",
+    redirect
+  );
+
+  authorizationUrl.searchParams.set(
+    "response_type",
+    "code"
+  );
+
+  authorizationUrl.searchParams.set(
+    "state",
+    state
+  );
+
+  authorizationUrl.searchParams.set(
+    "code_challenge",
+    challenge
+  );
+
+  authorizationUrl.searchParams.set(
+    "code_challenge_method",
+    "S256"
+  );
+}
+
+return new Response(null, {
+  status: 302,
+  headers: {
+    Location: authorizationUrl.toString(),
+    "Set-Cookie":
+      `__Host-oauth-tx=${txId}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`
+  }
+});
+}
