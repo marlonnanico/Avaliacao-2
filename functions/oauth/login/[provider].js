@@ -1,62 +1,43 @@
 function base64url(bytes) {
-  return btoa(
-    String.fromCharCode(...bytes)
-  )
+  return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 }
 
 async function sha256(text) {
+  const data = new TextEncoder().encode(text);
 
-  const data =
-    new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    data
+  );
 
-  const digest =
-    await crypto.subtle.digest(
-      "SHA-256",
-      data
-    );
-
-  return Array.from(
-    new Uint8Array(digest)
-  )
-    .map(b =>
-      b.toString(16).padStart(2, "0")
-    )
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, "0"))
     .join("");
 }
 
 function randomString() {
-
-  const bytes =
-    new Uint8Array(32);
+  const bytes = new Uint8Array(32);
 
   crypto.getRandomValues(bytes);
 
   return base64url(bytes);
 }
 
-async function createChallenge(
-  verifier
-) {
-
-  const digest =
-    await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(
-        verifier
-      )
-    );
+async function createChallenge(verifier) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(verifier)
+  );
 
   return base64url(
     new Uint8Array(digest)
   );
 }
 
-export async function onRequestGet(
-  context
-) {
+export async function onRequestGet(context) {
 
   const provider =
     context.params.provider;
@@ -74,11 +55,8 @@ export async function onRequestGet(
     );
   }
 
-  const txId =
-    randomString();
-
-  const state =
-    randomString();
+  const txId = randomString();
+  const state = randomString();
 
   const verifier =
     randomString();
@@ -89,9 +67,7 @@ export async function onRequestGet(
       : null;
 
   const challenge =
-    await createChallenge(
-      verifier
-    );
+    await createChallenge(verifier);
 
   const txHash =
     await sha256(txId);
@@ -100,9 +76,7 @@ export async function onRequestGet(
     await sha256(state);
 
   const expires =
-    Math.floor(
-      Date.now() / 1000
-    ) + 600;
+    Math.floor(Date.now() / 1000) + 600;
 
   await context.env.DB.prepare(`
     INSERT INTO oauth_transactions
@@ -220,6 +194,7 @@ export async function onRequestGet(
       headers: {
         Location:
           authorizationUrl.toString(),
+
         "Set-Cookie":
           `__Host-oauth-tx=${txId}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`
       }
