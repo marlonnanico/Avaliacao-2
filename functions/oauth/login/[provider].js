@@ -37,8 +37,7 @@ async function createChallenge(verifier) {
 
 export async function onRequestGet(context) {
 
-  const provider =
-    context.params.provider;
+  const provider = context.params.provider;
 
   if (
     provider !== "google" &&
@@ -51,6 +50,7 @@ export async function onRequestGet(context) {
 
   const txId = randomString();
   const state = randomString();
+
   const nonce =
     provider === "google"
       ? randomString()
@@ -156,37 +156,4 @@ export async function onRequestGet(context) {
 
     authorizationUrl.searchParams.set(
       "client_id",
-      context.env.GITHUB_CLIENT_ID
-    );
-
-    authorizationUrl.searchParams.set(
-      "redirect_uri",
-      redirect
-    );
-
-    authorizationUrl.searchParams.set(
-      "response_type",
-      "code"
-    );
-
-    authorizationUrl.searchParams.set(
-      "state",
-      state
-    );
-
-    authorizationUrl.searchParams.set(
-      "code_challenge",
-      challenge
-    );
-
-    authorizationUrl.searchParams.set(
-      "code_challenge_method",
-      "S256"
-    );
-  }
-
-  return Response.redirect(
-    authorizationUrl.toString(),
-    302
-  );
-}
+      context
