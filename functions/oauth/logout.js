@@ -1,77 +1,227 @@
-export async function onRequestPost(
+function base64url(bytes) {
+  return btoa(
+    String.fromCharCode(...bytes)
+  )
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+async function sha256(text) {
+
+  const data =
+    new TextEncoder().encode(text);
+
+  const digest =
+    await crypto.subtle.digest(
+      "SHA-256",
+      data
+    );
+
+  return Array.from(
+    new Uint8Array(digest)
+  )
+    .map(b =>
+      b.toString(16).padStart(2, "0")
+    )
+    .join("");
+}
+
+function randomString() {
+
+  const bytes =
+    new Uint8Array(32);
+
+  crypto.getRandomValues(bytes);
+
+  return base64url(bytes);
+}
+
+async function createChallenge(
+  verifier
+) {
+
+  const digest =
+    await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(
+        verifier
+      )
+    );
+
+  return base64url(
+    new Uint8Array(digest)
+  );
+}
+
+export async function onRequestGet(
   context
 ) {
 
-  const origin =
-    context.request.headers.get(
-      "Origin"
-    );
+  const provider =
+    context.params.provider;
 
   if (
-    origin !==
-    context.env.PUBLIC_BASE_URL
+    provider !== "google" &&
+    provider !== "github"
   ) {
 
     return new Response(
-      "Forbidden",
+      "Not found",
       {
-        status: 403
+        status: 404
       }
     );
   }
 
-  const cookie =
-    context.request.headers
-      .get("Cookie") || "";
+  const txId =
+    randomString();
 
-  const sessionCookie =
-    cookie
-      .split(";")
-      .find(c =>
-        c.trim().startsWith(
-          "__Host-session="
-        )
+  const state =
+    randomString();
+
+  const verifier =
+    randomString();
+
+  const nonce =
+    provider === "google"
+      ? randomString()
+      : null;
+
+  const challenge =
+    await createChallenge(
+      verifier
+    );
+
+  const txHash =
+    await sha256(txId);
+
+  const stateHash =
+    await sha256(state);
+
+  const expires =
+    Math.floor(
+      Date.now() / 1000
+    ) + 600;
+
+  await context.env.DB.prepare(`
+    INSERT INTO oauth_transactions
+    (
+      id_hash,
+      provider,
+      state_hash,
+      nonce,
+      code_verifier,
+      expires_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+    .bind(
+      txHash,
+      provider,
+      stateHash,
+      nonce,
+      verifier,
+      expires
+    )
+    .run();
+
+  let authorizationUrl;
+
+  if (provider === "google") {
+
+    authorizationUrl =
+      new URL(
+        "https://accounts.google.com/o/oauth2/v2/auth"
       );
 
-  if (sessionCookie) {
+    authorizationUrl.searchParams.set(
+      "client_id",
+      context.env.GOOGLE_CLIENT_ID
+    );
 
-    const rawValue =
-      sessionCookie.split("=")[1];
+    authorizationUrl.searchParams.set(
+      "redirect_uri",
+      `${context.env.PUBLIC_BASE_URL}/oauth/callback/google`
+    );
 
-    const hashBuffer =
-      await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(
-          rawValue
-        )
+    authorizationUrl.searchParams.set(
+      "response_type",
+      "code"
+    );
+
+    authorizationUrl.searchParams.set(
+      "scope",
+      "openid email profile"
+    );
+
+    authorizationUrl.searchParams.set(
+      "state",
+      state
+    );
+
+    authorizationUrl.searchParams.set(
+      "nonce",
+      nonce
+    );
+
+    authorizationUrl.searchParams.set(
+      "code_challenge",
+      challenge
+    );
+
+    authorizationUrl.searchParams.set(
+      "code_challenge_method",
+      "S256"
+    );
+
+  } else {
+
+    authorizationUrl =
+      new URL(
+        "https://github.com/login/oauth/authorize"
       );
 
-    const hash =
-      Array.from(
-        new Uint8Array(hashBuffer)
-      )
-      .map(b =>
-        b.toString(16)
-         .padStart(2, "0")
-      )
-      .join("");
+    authorizationUrl.searchParams.set(
+      "client_id",
+      context.env.GITHUB_CLIENT_ID
+    );
 
-    await context.env.DB
-      .prepare(
-        "DELETE FROM sessions WHERE id_hash=?"
-      )
-      .bind(hash)
-      .run();
+    authorizationUrl.searchParams.set(
+      "redirect_uri",
+      `${context.env.PUBLIC_BASE_URL}/oauth/callback/github`
+    );
+
+    authorizationUrl.searchParams.set(
+      "response_type",
+      "code"
+    );
+
+    authorizationUrl.searchParams.set(
+      "state",
+      state
+    );
+
+    authorizationUrl.searchParams.set(
+      "code_challenge",
+      challenge
+    );
+
+    authorizationUrl.searchParams.set(
+      "code_challenge_method",
+      "S256"
+    );
   }
 
   return new Response(
-    "Logout",
+    null,
     {
+      status: 302,
       headers: {
+        Location:
+          authorizationUrl.toString(),
         "Set-Cookie":
-          "__Host-session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0",
-        "Cache-Control":
-          "no-store"
+          `__Host-oauth-tx=${txId}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`
       }
     }
   );
