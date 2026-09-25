@@ -101,10 +101,7 @@ export async function onRequestGet(context) {
     );
   }
 
-  if (
-    !code ||
-    !state
-  ) {
+  if (!code || !state) {
 
     return new Response(
       "Missing code/state",
@@ -195,8 +192,7 @@ export async function onRequestGet(context) {
   }
 
   await context.env.DB.prepare(`
-    DELETE
-    FROM oauth_transactions
+    DELETE FROM oauth_transactions
     WHERE id_hash = ?
   `)
     .bind(txHash)
@@ -223,80 +219,77 @@ export async function onRequestGet(context) {
   let email;
   let displayName;
 
-  if (
-    provider ===
-    "google"
-  ) {
+  if (provider === "google") {
 
-    issuer =
-      "https://accounts.google.com";
+    const tokenResponse =
+      await fetch(
+        "https://oauth2.googleapis.com/token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/x-www-form-urlencoded"
+          },
+          body: new URLSearchParams({
+            code,
+            client_id:
+              context.env.GOOGLE_CLIENT_ID,
+            client_secret:
+              context.env.GOOGLE_CLIENT_SECRET,
+            redirect_uri:
+              `${context.env.PUBLIC_BASE_URL}/oauth/callback/google`,
+            grant_type:
+              "authorization_code",
+            code_verifier:
+              tx.code_verifier
+          })
+        }
+      );
 
-    subject =
-      code;
+    if (!tokenResponse.ok) {
 
-    email =
-      "google@example.com";
+      const errorText =
+        await tokenResponse.text();
 
-    displayName =
-      "Google User";
-
-  } else {
-
-    issuer =
-      "https://github.com";
-
-    subject =
-      code;
-
-    email =
-      null;
-
-    displayName =
-      "GitHub User";
-  }
-
-  await context.env.DB.prepare(`
-    INSERT INTO sessions
-    (
-      id_hash,
-      issuer,
-      subject,
-      email,
-      display_name,
-      expires_at,
-      created_at
-    )
-    VALUES
-    (
-      ?, ?, ?, ?, ?, ?, ?
-    )
-  `)
-    .bind(
-      sessionHash,
-      issuer,
-      subject,
-      email,
-      displayName,
-      expires,
-      now
-    )
-    .run();
-
-  return new Response(
-    null,
-    {
-      status: 302,
-      headers: {
-
-        Location:
-          context.env.PUBLIC_BASE_URL,
-
-        "Set-Cookie":
-          `__Host-session=${sessionId}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800`,
-
-        "Cache-Control":
-          "no-store"
-      }
+      return new Response(
+        errorText,
+        {
+          status: 400
+        }
+      );
     }
-  );
-}
+
+    const tokenData =
+      await tokenResponse.json();
+
+    if (!tokenData.id_token) {
+
+      return new Response(
+        "Missing id_token",
+        {
+          status: 400
+        }
+      );
+    }
+
+    const payload =
+      JSON.parse(
+        atob(
+          tokenData.id_token
+            .split(".")[1]
+            .replace(/-/g, "+")
+            .replace(/_/g, "/")
+        )
+      );
+
+    issuer =
+      payload.iss;
+
+    subject =
+      payload.sub;
+
+    email =
+      payload.email ?? null;
+
+    displayName =
+      payload.
