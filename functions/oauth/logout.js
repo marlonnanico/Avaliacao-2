@@ -1,21 +1,9 @@
-function base64url(bytes) {
-  return btoa(
-    String.fromCharCode(...bytes)
-  )
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
 async function sha256(text) {
-
-  const data =
-    new TextEncoder().encode(text);
 
   const digest =
     await crypto.subtle.digest(
       "SHA-256",
-      data
+      new TextEncoder().encode(text)
     );
 
   return Array.from(
@@ -27,201 +15,74 @@ async function sha256(text) {
     .join("");
 }
 
-function randomString() {
+function getCookie(request, name) {
 
-  const bytes =
-    new Uint8Array(32);
+  const cookieHeader =
+    request.headers.get("Cookie") || "";
 
-  crypto.getRandomValues(bytes);
+  const cookies =
+    cookieHeader.split(";");
 
-  return base64url(bytes);
+  for (const cookie of cookies) {
+
+    const [key, value] =
+      cookie.trim().split("=");
+
+    if (key === name) {
+      return value;
+    }
+  }
+
+  return null;
 }
 
-async function createChallenge(
-  verifier
-) {
+export async function onRequestPost(context) {
 
-  const digest =
-    await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(
-        verifier
-      )
+  const origin =
+    context.request.headers.get(
+      "Origin"
     );
 
-  return base64url(
-    new Uint8Array(digest)
-  );
-}
-
-export async function onRequestGet(
-  context
-) {
-
-  const provider =
-    context.params.provider;
-
   if (
-    provider !== "google" &&
-    provider !== "github"
+    origin !==
+    context.env.PUBLIC_BASE_URL
   ) {
 
     return new Response(
-      "Not found",
+      "Forbidden",
       {
-        status: 404
+        status: 403
       }
     );
   }
 
-  const txId =
-    randomString();
-
-  const state =
-    randomString();
-
-  const verifier =
-    randomString();
-
-  const nonce =
-    provider === "google"
-      ? randomString()
-      : null;
-
-  const challenge =
-    await createChallenge(
-      verifier
+  const sessionValue =
+    getCookie(
+      context.request,
+      "__Host-session"
     );
 
-  const txHash =
-    await sha256(txId);
+  if (sessionValue) {
 
-  const stateHash =
-    await sha256(state);
+    const hash =
+      await sha256(sessionValue);
 
-  const expires =
-    Math.floor(
-      Date.now() / 1000
-    ) + 600;
-
-  await context.env.DB.prepare(`
-    INSERT INTO oauth_transactions
-    (
-      id_hash,
-      provider,
-      state_hash,
-      nonce,
-      code_verifier,
-      expires_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?)
-  `)
-    .bind(
-      txHash,
-      provider,
-      stateHash,
-      nonce,
-      verifier,
-      expires
-    )
+    await context.env.DB.prepare(`
+      DELETE FROM sessions
+      WHERE id_hash = ?
+    `)
+    .bind(hash)
     .run();
-
-  let authorizationUrl;
-
-  if (provider === "google") {
-
-    authorizationUrl =
-      new URL(
-        "https://accounts.google.com/o/oauth2/v2/auth"
-      );
-
-    authorizationUrl.searchParams.set(
-      "client_id",
-      context.env.GOOGLE_CLIENT_ID
-    );
-
-    authorizationUrl.searchParams.set(
-      "redirect_uri",
-      `${context.env.PUBLIC_BASE_URL}/oauth/callback/google`
-    );
-
-    authorizationUrl.searchParams.set(
-      "response_type",
-      "code"
-    );
-
-    authorizationUrl.searchParams.set(
-      "scope",
-      "openid email profile"
-    );
-
-    authorizationUrl.searchParams.set(
-      "state",
-      state
-    );
-
-    authorizationUrl.searchParams.set(
-      "nonce",
-      nonce
-    );
-
-    authorizationUrl.searchParams.set(
-      "code_challenge",
-      challenge
-    );
-
-    authorizationUrl.searchParams.set(
-      "code_challenge_method",
-      "S256"
-    );
-
-  } else {
-
-    authorizationUrl =
-      new URL(
-        "https://github.com/login/oauth/authorize"
-      );
-
-    authorizationUrl.searchParams.set(
-      "client_id",
-      context.env.GITHUB_CLIENT_ID
-    );
-
-    authorizationUrl.searchParams.set(
-      "redirect_uri",
-      `${context.env.PUBLIC_BASE_URL}/oauth/callback/github`
-    );
-
-    authorizationUrl.searchParams.set(
-      "response_type",
-      "code"
-    );
-
-    authorizationUrl.searchParams.set(
-      "state",
-      state
-    );
-
-    authorizationUrl.searchParams.set(
-      "code_challenge",
-      challenge
-    );
-
-    authorizationUrl.searchParams.set(
-      "code_challenge_method",
-      "S256"
-    );
   }
 
   return new Response(
-    null,
+    "Logout",
     {
-      status: 302,
       headers: {
-        Location:
-          authorizationUrl.toString(),
         "Set-Cookie":
-          `__Host-oauth-tx=${txId}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`
+          "__Host-session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0",
+        "Cache-Control":
+          "no-store"
       }
     }
   );
