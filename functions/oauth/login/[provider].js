@@ -6,7 +6,6 @@ export async function onRequestGet(context) {
     return new Response("Não encontrado", { status: 404 });
   }
 
-  // Funções utilitárias nativas para geração de valores aleatórios e criptografia
   async function generateRandomBase64URL(byteLength = 32) {
     const array = new Uint8Array(byteLength);
     crypto.getRandomValues(array);
@@ -36,7 +35,11 @@ export async function onRequestGet(context) {
 
   const txIdHash = await sha256Hex(txId);
   const stateHash = await sha256Hex(state);
-  const expiresAt = Math.floor(Date.now() / 1000) + 600; // Expira em 10 minutos
+  const expiresAt = Math.floor(Date.now() / 1000) + 600;
+
+  // Normaliza a URL base removendo qualquer barra no final para evitar duplicação
+  const baseUrl = (env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+  const redirectUri = `${baseUrl}/oauth/callback/${providerName}`;
 
   await env.DB.prepare(
     `INSERT INTO oauth_transactions (id_hash, provider, state_hash, nonce, code_verifier, expires_at) VALUES (?, ?, ?, ?, ?, ?)`
@@ -44,7 +47,6 @@ export async function onRequestGet(context) {
     .bind(txIdHash, providerName, stateHash, nonce || "", codeVerifier, expiresAt)
     .run();
 
-  const redirectUri = `${env.PUBLIC_BASE_URL}/oauth/callback/${providerName}`;
   const authUrl = new URL(providerName === "google" 
     ? "https://accounts.google.com/o/oauth2/v2/auth" 
     : "https://github.com/login/oauth/authorize");
@@ -59,6 +61,8 @@ export async function onRequestGet(context) {
   if (providerName === "google") {
     authUrl.searchParams.set("scope", "openid email profile");
     authUrl.searchParams.set("nonce", nonce);
+  } else if (providerName === "github") {
+    authUrl.searchParams.set("scope", "read:user user:email");
   }
 
   return new Response(null, {
