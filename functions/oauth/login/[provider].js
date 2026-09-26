@@ -6,6 +6,15 @@ export async function onRequestGet(context) {
     return new Response("Não encontrado", { status: 404 });
   }
 
+  // Tenta ler de várias formas possíveis para garantir que pega a variável
+  const googleClientId = env.GOOGLE_CLIENT_ID || "";
+  const githubClientId = env.GITHUB_CLIENT_ID || "";
+  const clientId = providerName === "google" ? googleClientId : githubClientId;
+
+  if (!clientId) {
+    return new Response(`Erro de Configuração: O Client ID para ${providerName} não foi encontrado nas variáveis de ambiente do Cloudflare.`, { status: 500 });
+  }
+
   async function generateRandomBase64URL(byteLength = 32) {
     const array = new Uint8Array(byteLength);
     crypto.getRandomValues(array);
@@ -37,8 +46,7 @@ export async function onRequestGet(context) {
   const stateHash = await sha256Hex(state);
   const expiresAt = Math.floor(Date.now() / 1000) + 600;
 
-  // Lê a variável de ambiente configurada na Cloudflare
-  const baseUrl = (env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+  const baseUrl = (env.PUBLIC_BASE_URL || "https://avaliacao-2-7qm.pages.dev").replace(/\/+$/, "");
   const redirectUri = `${baseUrl}/oauth/callback/${providerName}`;
 
   await env.DB.prepare(
@@ -51,7 +59,7 @@ export async function onRequestGet(context) {
     ? "https://accounts.google.com/o/oauth2/v2/auth" 
     : "https://github.com/login/oauth/authorize");
 
-  authUrl.searchParams.set("client_id", providerName === "google" ? env.GOOGLE_CLIENT_ID : env.GITHUB_CLIENT_ID);
+  authUrl.searchParams.set("client_id", clientId);
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("state", state);
