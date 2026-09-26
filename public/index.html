@@ -1,15 +1,30 @@
-<!doctype html> 
-<html lang="pt-BR"> 
-<head> 
-<meta charset="utf-8"> 
-<meta name="viewport" content="width=device-width, initial-scale=1"> 
-<title>Laboratório de autenticação</title> 
-</head> 
-<body> 
-<main> 
-<h1>Laboratório de autenticação</h1> 
-<p id="status">A sessão ainda não foi consultada.</p> 
-</main> 
-</body> 
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laboratório de autenticação</title>
+</head>
+<body>
+<main>
+<h1>Laboratório de autenticação</h1>
+<p id="status">A sessão ainda não foi consultada.</p>
+
+<!-- Links de login exigidos no Passo 14 -->
+<div>
+<p><a href="/oauth/login/google">Entrar com Google</a></p>
+<p><a href="/oauth/login/github">Entrar com GitHub</a></p>
+</div>
+
+<!-- Formulário POST para o logout exigido no Passo 14 -->
+<div style="margin-top: 20px;">
+<form method="post" action="/oauth/logout">
+<button type="submit">Sair</button>
+</form>
+</div>
+</main>
+
+<!-- Script exigido no Passo 14[cite: 1] -->
+<script src="/app.js"></script>
+</body>
 </html>
-</html> 
