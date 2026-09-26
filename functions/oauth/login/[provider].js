@@ -1,203 +1,72 @@
-function base64url(bytes) {
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-async function sha256(text) {
-  const data = new TextEncoder().encode(text);
-
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    data
-  );
-
-  return Array.from(new Uint8Array(digest))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function randomString() {
-  const bytes = new Uint8Array(32);
-
-  crypto.getRandomValues(bytes);
-
-  return base64url(bytes);
-}
-
-async function createChallenge(verifier) {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(verifier)
-  );
-
-  return base64url(
-    new Uint8Array(digest)
-  );
-}
-
 export async function onRequestGet(context) {
+  const { request, env, params } = context;
+  const providerName = params.provider;
 
-  const provider =
-    context.params.provider;
-
-  if (
-    provider !== "google" &&
-    provider !== "github"
-  ) {
-
-    return new Response(
-      "Not found",
-      {
-        status: 404
-      }
-    );
+  if (providerName !== "google" && providerName !== "github") {
+    return new Response("Não encontrado", { status: 404 });
   }
 
-  const txId = randomString();
-  const state = randomString();
+  // Funções utilitárias nativas para geração de valores aleatórios e criptografia
+  async function generateRandomBase64URL(byteLength = 32) {
+    const array = new Uint8Array(byteLength);
+    crypto.getRandomValues(array);
+    let binary = "";
+    for (let i = 0; i < array.byteLength; i++) binary += String.fromCharCode(array[i]);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
 
-  const verifier =
-    randomString();
+  async function sha256Hex(plain) {
+    const data = new TextEncoder().encode(plain);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+  }
 
-  const nonce =
-    provider === "google"
-      ? randomString()
-      : null;
+  async function sha256Base64URL(plain) {
+    const data = new TextEncoder().encode(plain);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    return btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
 
-  const challenge =
-    await createChallenge(verifier);
+  const txId = await generateRandomBase64URL(32);
+  const state = await generateRandomBase64URL(32);
+  const codeVerifier = await generateRandomBase64URL(32);
+  const codeChallenge = await sha256Base64URL(codeVerifier);
+  const nonce = providerName === "google" ? await generateRandomBase64URL(32) : null;
 
-  const txHash =
-    await sha256(txId);
+  const txIdHash = await sha256Hex(txId);
+  const stateHash = await sha256Hex(state);
+  const expiresAt = Math.floor(Date.now() / 1000) + 600; // Expira em 10 minutos
 
-  const stateHash =
-    await sha256(state);
-
-  const expires =
-    Math.floor(Date.now() / 1000) + 600;
-
-  await context.env.DB.prepare(`
-    INSERT INTO oauth_transactions
-    (
-      id_hash,
-      provider,
-      state_hash,
-      nonce,
-      code_verifier,
-      expires_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?)
-  `)
-    .bind(
-      txHash,
-      provider,
-      stateHash,
-      nonce,
-      verifier,
-      expires
-    )
+  await env.DB.prepare(
+    `INSERT INTO oauth_transactions (id_hash, provider, state_hash, nonce, code_verifier, expires_at) VALUES (?, ?, ?, ?, ?, ?)`
+  )
+    .bind(txIdHash, providerName, stateHash, nonce || "", codeVerifier, expiresAt)
     .run();
 
-  let authorizationUrl;
+  const redirectUri = `${env.PUBLIC_BASE_URL}/oauth/callback/${providerName}`;
+  const authUrl = new URL(providerName === "google" 
+    ? "https://accounts.google.com/o/oauth2/v2/auth" 
+    : "https://github.com/login/oauth/authorize");
 
-  if (provider === "google") {
+  authUrl.searchParams.set("client_id", providerName === "google" ? env.GOOGLE_CLIENT_ID : env.GITHUB_CLIENT_ID);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set("code_challenge", codeChallenge);
+  authUrl.searchParams.set("code_challenge_method", "S256");
 
-    authorizationUrl =
-      new URL(
-        "https://accounts.google.com/o/oauth2/v2/auth"
-      );
-
-    authorizationUrl.searchParams.set(
-      "client_id",
-      context.env.GOOGLE_CLIENT_ID
-    );
-
-    authorizationUrl.searchParams.set(
-      "redirect_uri",
-      `${context.env.PUBLIC_BASE_URL}/oauth/callback/google`
-    );
-
-    authorizationUrl.searchParams.set(
-      "response_type",
-      "code"
-    );
-
-    authorizationUrl.searchParams.set(
-      "scope",
-      "openid email profile"
-    );
-
-    authorizationUrl.searchParams.set(
-      "state",
-      state
-    );
-
-    authorizationUrl.searchParams.set(
-      "nonce",
-      nonce
-    );
-
-    authorizationUrl.searchParams.set(
-      "code_challenge",
-      challenge
-    );
-
-    authorizationUrl.searchParams.set(
-      "code_challenge_method",
-      "S256"
-    );
-
-  } else {
-
-    authorizationUrl =
-      new URL(
-        "https://github.com/login/oauth/authorize"
-      );
-
-    authorizationUrl.searchParams.set(
-      "client_id",
-      context.env.GITHUB_CLIENT_ID
-    );
-
-    authorizationUrl.searchParams.set(
-      "redirect_uri",
-      `${context.env.PUBLIC_BASE_URL}/oauth/callback/github`
-    );
-
-    authorizationUrl.searchParams.set(
-      "response_type",
-      "code"
-    );
-
-    authorizationUrl.searchParams.set(
-      "state",
-      state
-    );
-
-    authorizationUrl.searchParams.set(
-      "code_challenge",
-      challenge
-    );
-
-    authorizationUrl.searchParams.set(
-      "code_challenge_method",
-      "S256"
-    );
+  if (providerName === "google") {
+    authUrl.searchParams.set("scope", "openid email profile");
+    authUrl.searchParams.set("nonce", nonce);
   }
 
-  return new Response(
-    null,
-    {
-      status: 302,
-      headers: {
-        Location:
-          authorizationUrl.toString(),
-
-        "Set-Cookie":
-          `__Host-oauth-tx=${txId}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`
-      }
-    }
-  );
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: authUrl.toString(),
+      "Set-Cookie": `Host-oauth-tx=${txId}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+      "Cache-Control": "no-store",
+    },
+  });
 }
