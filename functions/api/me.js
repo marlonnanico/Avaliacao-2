@@ -1,97 +1,50 @@
-async function sha256(text) {
-  const data = new TextEncoder().encode(text);
-
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    data
-  );
-
-  return Array.from(new Uint8Array(digest))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function getCookie(request, name) {
-  const cookieHeader =
-    request.headers.get("Cookie") || "";
-
-  const cookies =
-    cookieHeader.split(";");
-
-  for (const cookie of cookies) {
-
-    const [key, value] =
-      cookie.trim().split("=");
-
-    if (key === name) {
-      return value;
-    }
-  }
-
-  return null;
-}
-
 export async function onRequestGet(context) {
+  const { request, env } = context;
+  
+  // Lê os cookies da requisição
+  const cookieHeader = request.headers.get("Cookie") || "";
+  const match = cookieHeader.match(/Host-session=([^;]+)/);
+  const sessionCookie = match ? match[1] : null;
 
-  const sessionValue =
-    getCookie(
-      context.request,
-      "__Host-session"
-    );
-
-  if (!sessionValue) {
-
-    return new Response(
-      "Unauthorized",
-      {
-        status: 401,
-        headers: {
-          "Cache-Control": "no-store"
-        }
-      }
-    );
+  if (!sessionCookie) {
+    return new Response(JSON.stringify({ error: "Não autorizado" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
   }
 
-  const hash =
-    await sha256(sessionValue);
+  // Calcula o resumo (hash SHA-256) do cookie de sessão para buscar no D1
+  const encoder = new TextEncoder();
+  const data = encoder.encode(sessionCookie);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const sessionHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 
-  const session =
-    await context.env.DB.prepare(`
-      SELECT *
-      FROM sessions
-      WHERE id_hash = ?
-      AND expires_at > ?
-    `)
-    .bind(
-      hash,
-      Math.floor(Date.now() / 1000)
-    )
+  const now = Math.floor(Date.now() / 1000);
+
+  // Consulta a sessão no D1
+  const row = await env.DB.prepare(
+    "SELECT subject, email, display_name, expires_at FROM sessions WHERE id_hash = ? AND expires_at > ?"
+  )
+    .bind(sessionHash, now)
     .first();
 
-  if (!session) {
-
-    return new Response(
-      "Unauthorized",
-      {
-        status: 401,
-        headers: {
-          "Cache-Control": "no-store"
-        }
-      }
-    );
+  if (!row) {
+    return new Response(JSON.stringify({ error: "Sessão expirada ou inválida" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
   }
 
-  return Response.json(
+  return new Response(
+    JSON.stringify({
+      subject: row.subject,
+      email: row.email,
+      displayName: row.display_name,
+    }),
     {
-      issuer: session.issuer,
-      subject: session.subject,
-      email: session.email,
-      displayName: session.display_name
-    },
-    {
-      headers: {
-        "Cache-Control": "no-store"
-      }
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     }
   );
 }
