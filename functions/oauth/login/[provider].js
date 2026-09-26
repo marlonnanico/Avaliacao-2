@@ -6,13 +6,12 @@ export async function onRequestGet(context) {
     return new Response("Não encontrado", { status: 404 });
   }
 
-  // Tenta ler de várias formas possíveis para garantir que pega a variável
   const googleClientId = env.GOOGLE_CLIENT_ID || "";
   const githubClientId = env.GITHUB_CLIENT_ID || "";
   const clientId = providerName === "google" ? googleClientId : githubClientId;
 
   if (!clientId) {
-    return new Response(`Erro de Configuração: O Client ID para ${providerName} não foi encontrado nas variáveis de ambiente do Cloudflare.`, { status: 500 });
+    return new Response("Erro de Configuração: Client ID não encontrado nas variáveis de ambiente.", { status: 500 });
   }
 
   async function generateRandomBase64URL(byteLength = 32) {
@@ -46,7 +45,7 @@ export async function onRequestGet(context) {
   const stateHash = await sha256Hex(state);
   const expiresAt = Math.floor(Date.now() / 1000) + 600;
 
-  const baseUrl = (env.PUBLIC_BASE_URL || "https://avaliacao-2-7qm.pages.dev").replace(/\/+$/, "");
+  const baseUrl = (env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
   const redirectUri = `${baseUrl}/oauth/callback/${providerName}`;
 
   await env.DB.prepare(
