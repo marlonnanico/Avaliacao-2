@@ -37,7 +37,7 @@ export async function onRequestGet(context) {
   const stateHash = await sha256Hex(state);
   const expiresAt = Math.floor(Date.now() / 1000) + 600;
 
-  // Normaliza a URL base removendo qualquer barra no final para evitar duplicação
+  // Lê a variável de ambiente configurada na Cloudflare
   const baseUrl = (env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
   const redirectUri = `${baseUrl}/oauth/callback/${providerName}`;
 
