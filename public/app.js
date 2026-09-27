@@ -11,6 +11,8 @@ document.addEventListener("DOMContentLoaded", () => {
     })
     .catch(() => {
       const status = document.getElementById("status");
-      if (status) status.textContent = "Erro ao consultar a sessão.";
+      if (status) {
+        status.textContent = "Erro ao consultar status da sessão.";
+      }
     });
 });
