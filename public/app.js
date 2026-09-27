@@ -15,4 +15,3 @@ document.addEventListener("DOMContentLoaded", () => {
         status.textContent = "Erro ao consultar status da sessão.";
       }
     });
-});
