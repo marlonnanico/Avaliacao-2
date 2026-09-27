@@ -30,7 +30,6 @@ export async function onRequestGet(context) {
 
   const now = Math.floor(Date.now() / 1000);
 
-  // Consulta e consome a transação do banco
   const tx = await env.DB.prepare(
     `SELECT * FROM oauth_transactions WHERE id_hash = ? AND provider = ? AND expires_at > ?`
   ).bind(txHash, provider, now).first();
@@ -39,7 +38,6 @@ export async function onRequestGet(context) {
     return new Response("Transação inválida, expirada ou estado alterado", { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
-  // Apaga a transação imediatamente para evitar reutilização
   await env.DB.prepare(`DELETE FROM oauth_transactions WHERE id_hash = ?`).bind(txHash).run();
 
   const redirectUri = `${baseUrl}/oauth/callback/${provider}`;
@@ -97,7 +95,6 @@ export async function onRequestGet(context) {
       return new Response("Access token não retornado pelo GitHub", { status: 400, headers: { "Cache-Control": "no-store" } });
     }
 
-    // Consulta API do GitHub
     const userRes = await fetch("https://api.github.com/user", {
       headers: {
         "Authorization": `Bearer ${accessToken}`,
@@ -113,7 +110,6 @@ export async function onRequestGet(context) {
 
     const githubUser = await userRes.json();
 
-    // Revoga a autorização do GitHub imediatamente
     const basicAuth = btoa(`${env.GITHUB_CLIENT_ID}:${env.GITHUB_CLIENT_SECRET}`);
     const revokeRes = await fetch(`https://api.github.com/applications/${env.GITHUB_CLIENT_ID}/grant`, {
       method: "DELETE",
@@ -136,10 +132,9 @@ export async function onRequestGet(context) {
     userProfile.displayName = githubUser.name || githubUser.login || null;
   }
 
-  // Criação da sessão local (8 horas de validade)
   const rawSessionId = generateRandomString(32);
   const sessionHash = await sha256Base64Url(rawSessionId);
-  const sessionExpiresAt = now + 28800; // 8 horas em segundos
+  const sessionExpiresAt = now + 28800; // 8 horas
 
   await env.DB.prepare(
     `INSERT INTO sessions (id_hash, issuer, subject, email, display_name, expires_at, created_at)
@@ -159,8 +154,8 @@ export async function onRequestGet(context) {
     "Cache-Control": "no-store"
   });
 
-  // Limpa o cookie temporário e insere o cookie de sessão opaco
   headers.append("Set-Cookie", `__Host-oauth-tx=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
   headers.append("Set-Cookie", `__Host-session=${rawSessionId}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800`);
 
   return new Response(null, { status: 302, headers });
+}
