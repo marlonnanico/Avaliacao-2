@@ -8,6 +8,7 @@
     :root {
       --bg-color: #06120e;
       --card-bg: #0d1f19;
+      --inner-card-bg: #06120e;
       --text-main: #ecfdf5;
       --text-muted: #6ee7b7;
       --border-color: #19382d;
@@ -37,13 +38,13 @@
       border-radius: 16px;
       padding: 40px 32px;
       width: 100%;
-      max-width: 400px;
+      max-width: 420px;
       box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
       text-align: center;
     }
 
     .card-header {
-      margin-bottom: 28px;
+      margin-bottom: 24px;
     }
 
     .logo-icon {
@@ -55,17 +56,51 @@
       font-size: 20px;
       font-weight: 600;
       color: var(--text-main);
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
 
     .status-badge {
       display: inline-block;
-      background-color: #06120e;
+      background-color: var(--inner-card-bg);
       border: 1px solid var(--border-color);
       color: var(--text-muted);
       font-size: 13px;
-      padding: 8px 14px;
+      padding: 6px 14px;
       border-radius: 20px;
+    }
+
+    /* Caixa de detalhes quando logado */
+    .profile-card {
+      display: none;
+      background-color: var(--inner-card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: left;
+      margin-bottom: 20px;
+    }
+
+    .profile-field {
+      margin-bottom: 14px;
+    }
+
+    .profile-field:last-child {
+      margin-bottom: 0;
+    }
+
+    .profile-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .profile-value {
+      font-size: 14px;
+      color: var(--text-main);
+      font-weight: 500;
       word-break: break-all;
     }
 
@@ -118,9 +153,8 @@
     }
 
     .logout-form {
-      margin-top: 24px;
-      padding-top: 20px;
-      border-top: 1px solid var(--border-color);
+      display: none;
+      margin-top: 10px;
     }
 
     .btn-logout {
@@ -142,6 +176,23 @@
       <p id="status" class="status-badge">A consultar sessão...</p>
     </div>
 
+    <!-- Caixa de informações exibida após o login -->
+    <div id="profile-card" class="profile-card">
+      <div class="profile-field">
+        <div class="profile-label">Nome de Utilizador / Sub</div>
+        <div id="user-sub" class="profile-value">-</div>
+      </div>
+      <div class="profile-field">
+        <div class="profile-label">Correio Eletrónico</div>
+        <div id="user-email" class="profile-value">-</div>
+      </div>
+      <div class="profile-field">
+        <div class="profile-label">Fornecedor de Identidade</div>
+        <div id="user-iss" class="profile-value">-</div>
+      </div>
+    </div>
+
+    <!-- Botoes de login -->
     <div id="auth-actions" class="btn-group">
       <a href="/oauth/login/google" class="btn btn-google">
         <svg class="btn-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M21.35 11.1H12v3.8h5.35c-.23 1.25-.94 2.31-2 3.06v2.54h3.24c1.89-1.74 2.98-4.3 2.98-7.4 0-.72-.07-1.42-.22-2.000Z"/><path fill="currentColor" d="M12 21c2.7 0 4.96-.89 6.62-2.42l-3.24-2.54c-.9.6-2.04.96-3.38.96-2.6 0-4.81-1.76-5.59-4.12H3.06v2.6C4.7 18.57 8.08 21 12 21z"/><path fill="currentColor" d="M6.41 12.88c-.2-.6-.31-1.24-.31-1.88s.11-1.28.31-1.88V6.52H3.06C2.38 7.88 2 9.4 2 11s.38 3.12 1.06 4.48l3.35-2.6z"/><path fill="currentColor" d="M12 4.96c1.47 0 2.79.5 3.83 1.5l2.87-2.87C16.95 1.94 14.7 1 12 1 8.08 1 4.7 3.43 3.06 6.52l3.35 2.6c.78-2.36 2.99-4.12 5.59-4.12z"/></svg>
@@ -154,7 +205,8 @@
       </a>
     </div>
 
-    <form method="post" action="/oauth/logout" class="logout-form">
+    <!-- Botão de Logout -->
+    <form id="logout-form" method="post" action="/oauth/logout" class="logout-form">
       <button type="submit" class="btn btn-logout">Sair da Conta</button>
     </form>
   </div>
