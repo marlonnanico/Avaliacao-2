@@ -2,6 +2,7 @@ import { parseCookies } from "../shared/cookies.js";
 import { sha256Base64Url } from "../shared/crypto.js";
 
 export async function onRequestGet(context) {
+  const env = context.env;
   const cookies = parseCookies(context.request.headers.get("Cookie"));
   const rawSessionId = cookies["__Host-session"];
 
@@ -12,13 +13,10 @@ export async function onRequestGet(context) {
     });
   }
 
-  const env = context.env;
   const sessionHash = await sha256Base64Url(rawSessionId);
-  const now = Math.floor(Date.now() / 1000);
-
   const session = await env.DB.prepare(
-    `SELECT issuer, subject, email, display_name FROM sessions WHERE id_hash = ? AND expires_at > ?`
-  ).bind(sessionHash, now).first();
+    `SELECT user_id, provider, email, created_at FROM sessions WHERE id_hash = ?`
+  ).bind(sessionHash).first();
 
   if (!session) {
     return new Response(JSON.stringify({ error: "Sessão inválida ou expirada" }), {
@@ -27,19 +25,20 @@ export async function onRequestGet(context) {
     });
   }
 
+  const iss = session.provider === "google" 
+    ? "https://accounts.google.com" 
+    : "https://github.com";
+
   return new Response(
     JSON.stringify({
-      issuer: session.issuer,
-      subject: session.subject,
-      email: session.email,
-      displayName: session.display_name
+      sub: session.user_id,
+      email: session.email || "Não informado",
+      iss: iss,
+      provider: session.provider
     }),
     {
       status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store"
-      }
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }
     }
   );
 }
