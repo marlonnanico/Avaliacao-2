@@ -14,9 +14,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       const data = await res.json();
       
       statusEl.textContent = "Bem-vindo(a) de volta!";
-      userSub.textContent = data.sub || "-";
+      
+      // Suporta tanto o retorno formatado (/api/me) quanto os nomes diretos
+      userSub.textContent = data.sub || data.user_id || data.id || "-";
       userEmail.textContent = data.email || "-";
-      userIss.textContent = data.iss || "-";
+      userIss.textContent = data.iss || data.provider || (data.provider === "google" ? "https://accounts.google.com" : "https://github.com") || "-";
 
       authActions.style.display = "none";
       profileCard.style.display = "block";
