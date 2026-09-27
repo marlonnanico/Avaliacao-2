@@ -15,7 +15,7 @@ export async function onRequestGet(context) {
 
   const sessionHash = await sha256Base64Url(rawSessionId);
   const session = await env.DB.prepare(
-    `SELECT user_id, provider, email, created_at FROM sessions WHERE id_hash = ?`
+    `SELECT user_id, email, created_at FROM sessions WHERE id_hash = ?`
   ).bind(sessionHash).first();
 
   if (!session) {
@@ -25,16 +25,16 @@ export async function onRequestGet(context) {
     });
   }
 
-  const iss = session.provider === "google" 
-    ? "https://accounts.google.com" 
-    : "https://github.com";
+  const isGoogle = (session.user_id || "").startsWith("google:");
+  const cleanSub = (session.user_id || "").replace(/^(google|github):/, "");
+  const iss = isGoogle ? "https://accounts.google.com" : "https://github.com";
 
   return new Response(
     JSON.stringify({
-      sub: session.user_id || "Não identificado",
+      sub: cleanSub || session.user_id,
       email: session.email || "Não informado",
       iss: iss,
-      provider: session.provider
+      provider: isGoogle ? "google" : "github"
     }),
     {
       status: 200,
