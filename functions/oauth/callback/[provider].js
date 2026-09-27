@@ -47,13 +47,13 @@ export async function onRequestGet(context) {
       try {
         payload = await verifyGoogleIdToken(tokenData.id_token, env.GOOGLE_CLIENT_ID, storedNonce);
       } catch (e) {
-        // Fallback: faz parse seguro das reivindicações do JWT se a validação estrita falhar
         const parts = tokenData.id_token.split(".");
         const decoded = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
         payload = decoded;
       }
 
-      userId = payload.sub || "Sem ID";
+      // Prepara o ID e fornecedor
+      userId = `google:${payload.sub}`;
       email = payload.email || "";
     } else if (provider === "github") {
       const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
@@ -89,7 +89,7 @@ export async function onRequestGet(context) {
       }
 
       const userData = await userRes.json();
-      userId = userData.login || String(userData.id);
+      userId = `github:${userData.login || userData.id}`;
       email = userData.email || "";
 
       if (!email) {
@@ -112,9 +112,10 @@ export async function onRequestGet(context) {
     const rawSessionId = generateRandomString(32);
     const sessionHash = await sha256Base64Url(rawSessionId);
 
+    // Insere estritamente nas colunas existentes no teu D1
     await env.DB.prepare(
-      `INSERT INTO sessions (id_hash, provider, user_id, email, created_at) VALUES (?, ?, ?, ?, DATETIME('now'))`
-    ).bind(sessionHash, provider, userId, email).run();
+      `INSERT INTO sessions (id_hash, user_id, email, created_at) VALUES (?, ?, ?, DATETIME('now'))`
+    ).bind(sessionHash, userId, email).run();
 
     const headers = new Headers({
       "Location": baseUrl,
