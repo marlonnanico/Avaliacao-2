@@ -19,10 +19,14 @@ export async function onRequestGet(context) {
       return new Response("Estado OAuth inválido ou reutilizado", { status: 400 });
     }
 
-    let userId = "";
+    let issuer = "";
+    let subject = "";
     let email = "";
+    let displayName = "";
 
     if (provider === "google") {
+      issuer = "https://accounts.google.com";
+
       const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -52,10 +56,12 @@ export async function onRequestGet(context) {
         payload = decoded;
       }
 
-      // Prepara o ID e fornecedor
-      userId = `google:${payload.sub}`;
+      subject = payload.sub || "Sem ID";
       email = payload.email || "";
+      displayName = payload.name || payload.given_name || payload.email || subject;
     } else if (provider === "github") {
+      issuer = "https://github.com";
+
       const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
         method: "POST",
         headers: {
@@ -89,7 +95,8 @@ export async function onRequestGet(context) {
       }
 
       const userData = await userRes.json();
-      userId = `github:${userData.login || userData.id}`;
+      subject = String(userData.id || userData.login);
+      displayName = userData.name || userData.login || subject;
       email = userData.email || "";
 
       if (!email) {
@@ -112,10 +119,14 @@ export async function onRequestGet(context) {
     const rawSessionId = generateRandomString(32);
     const sessionHash = await sha256Base64Url(rawSessionId);
 
-    // Insere estritamente nas colunas existentes no teu D1
+    const now = Math.floor(Date.now() / 1000);
+    const expiresAt = now + 3600; // Sessão válida por 1 hora
+
+    // Gravação correspondente às colunas exatas da tabela sessions
     await env.DB.prepare(
-      `INSERT INTO sessions (id_hash, user_id, email, created_at) VALUES (?, ?, ?, DATETIME('now'))`
-    ).bind(sessionHash, userId, email).run();
+      `INSERT INTO sessions (id_hash, issuer, subject, email, display_name, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(sessionHash, issuer, subject, email, displayName, expiresAt, now).run();
 
     const headers = new Headers({
       "Location": baseUrl,
