@@ -120,9 +120,8 @@ export async function onRequestGet(context) {
     const sessionHash = await sha256Base64Url(rawSessionId);
 
     const now = Math.floor(Date.now() / 1000);
-    const expiresAt = now + 3600; // Sessão válida por 1 hora
+    const expiresAt = now + 3600;
 
-    // Gravação correspondente às colunas exatas da tabela sessions
     await env.DB.prepare(
       `INSERT INTO sessions (id_hash, issuer, subject, email, display_name, expires_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
