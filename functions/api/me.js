@@ -14,27 +14,27 @@ export async function onRequestGet(context) {
   }
 
   const sessionHash = await sha256Base64Url(rawSessionId);
+  const now = Math.floor(Date.now() / 1000);
+
   const session = await env.DB.prepare(
-    `SELECT user_id, email, created_at FROM sessions WHERE id_hash = ?`
+    `SELECT issuer, subject, email, display_name, expires_at FROM sessions WHERE id_hash = ?`
   ).bind(sessionHash).first();
 
-  if (!session) {
+  if (!session || (session.expires_at && session.expires_at < now)) {
     return new Response(JSON.stringify({ error: "Sessão inválida ou expirada" }), {
       status: 401,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }
     });
   }
 
-  const isGoogle = (session.user_id || "").startsWith("google:");
-  const cleanSub = (session.user_id || "").replace(/^(google|github):/, "");
-  const iss = isGoogle ? "https://accounts.google.com" : "https://github.com";
+  const provider = session.issuer.includes("google") ? "google" : "github";
 
   return new Response(
     JSON.stringify({
-      sub: cleanSub || session.user_id,
+      sub: session.display_name || session.subject,
       email: session.email || "Não informado",
-      iss: iss,
-      provider: isGoogle ? "google" : "github"
+      iss: session.issuer,
+      provider: provider
     }),
     {
       status: 200,
