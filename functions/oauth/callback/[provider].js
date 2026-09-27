@@ -42,8 +42,8 @@ export async function onRequestGet(context) {
     const storedNonce = cookies["__Host-google_nonce"];
     const payload = await verifyGoogleIdToken(tokenData.id_token, env.GOOGLE_CLIENT_ID, storedNonce);
 
-    // Extrai o nome de exibição do Google (ex: "Marlon") ou o ID 'sub' se não houver nome
-    userId = payload.name || payload.given_name || payload.sub;
+    // sub no Google é a identificação única do utilizador (ex: "10839281923812")
+    userId = payload.sub;
     email = payload.email || "";
   } else if (provider === "github") {
     const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
@@ -67,7 +67,6 @@ export async function onRequestGet(context) {
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
 
-    // Busca dados do perfil do utilizador no GitHub
     const userRes = await fetch("https://api.github.com/user", {
       headers: {
         "Authorization": `Bearer ${accessToken}`,
@@ -80,11 +79,10 @@ export async function onRequestGet(context) {
     }
 
     const userData = await userRes.json();
-    // Usa o Nome do perfil (ex: "Marlon"), ou o login (ex: "marlonnanico")
-    userId = userData.name || userData.login || String(userData.id);
+    // Identificação única no GitHub (ex: "login" ou "id")
+    userId = userData.login || String(userData.id);
     email = userData.email || "";
 
-    // Se o e-mail não estiver público no perfil, procura nos e-mails da conta
     if (!email) {
       const emailsRes = await fetch("https://api.github.com/user/emails", {
         headers: {
@@ -102,7 +100,6 @@ export async function onRequestGet(context) {
     return new Response("Provedor não suportado", { status: 400 });
   }
 
-  // Grava a sessão com os dados extraídos no banco D1
   const rawSessionId = generateRandomString(32);
   const sessionHash = await sha256Base64Url(rawSessionId);
 
@@ -115,7 +112,6 @@ export async function onRequestGet(context) {
     "Set-Cookie": `__Host-session=${rawSessionId}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=3600`
   });
 
-  // Limpa cookies do fluxo temporário do OAuth
   headers.append("Set-Cookie", `__Host-oauth_state=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
   headers.append("Set-Cookie", `__Host-google_nonce=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
 
