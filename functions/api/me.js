@@ -31,7 +31,7 @@ export async function onRequestGet(context) {
 
   return new Response(
     JSON.stringify({
-      sub: session.user_id,
+      sub: session.user_id || "Não identificado",
       email: session.email || "Não informado",
       iss: iss,
       provider: session.provider
