@@ -5,7 +5,6 @@ export async function onRequestPost(context) {
   const env = context.env;
   const origin = context.request.headers.get("Origin");
 
-  // Validação rígida de origem para CSRF
   if (origin !== env.PUBLIC_BASE_URL) {
     return new Response("Origem não permitida", { status: 403, headers: { "Cache-Control": "no-store" } });
   }
