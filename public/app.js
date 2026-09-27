@@ -1,18 +1,36 @@
-document.addEventListener("DOMContentLoaded", () => {
-  fetch("/api/me", { credentials: "same-origin" })
-    .then((response) => (response.ok ? response.json() : null))
-    .then((user) => {
-      const status = document.getElementById("status");
-      if (status) {
-        status.textContent = user
-          ? `Sessão de ${user.email ?? user.displayName}.`
-          : "Nenhuma sessão neste navegador.";
-      }
-    })
-    .catch(() => {
-      const status = document.getElementById("status");
-      if (status) {
-        status.textContent = "Erro ao consultar status da sessão.";
-      }
-    });
+document.addEventListener("DOMContentLoaded", async () => {
+  const statusEl = document.getElementById("status");
+  const authActions = document.getElementById("auth-actions");
+  const logoutForm = document.getElementById("logout-form");
+  const profileCard = document.getElementById("profile-card");
+
+  const userSub = document.getElementById("user-sub");
+  const userEmail = document.getElementById("user-email");
+  const userIss = document.getElementById("user-iss");
+
+  try {
+    const res = await fetch("/api/me");
+    if (res.ok) {
+      const data = await res.json();
+      
+      statusEl.textContent = "Bem-vindo(a) de volta!";
+      userSub.textContent = data.sub || "-";
+      userEmail.textContent = data.email || "-";
+      userIss.textContent = data.iss || "-";
+
+      authActions.style.display = "none";
+      profileCard.style.display = "block";
+      logoutForm.style.display = "block";
+    } else {
+      statusEl.textContent = "Nenhuma sessão neste navegador.";
+      authActions.style.display = "flex";
+      profileCard.style.display = "none";
+      logoutForm.style.display = "none";
+    }
+  } catch (e) {
+    statusEl.textContent = "Erro ao verificar a sessão.";
+    authActions.style.display = "flex";
+    profileCard.style.display = "none";
+    logoutForm.style.display = "none";
+  }
 });
