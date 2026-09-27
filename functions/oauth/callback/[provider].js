@@ -164,4 +164,3 @@ export async function onRequestGet(context) {
   headers.append("Set-Cookie", `__Host-session=${rawSessionId}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800`);
 
   return new Response(null, { status: 302, headers });
-}
