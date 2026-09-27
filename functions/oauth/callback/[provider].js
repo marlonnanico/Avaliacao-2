@@ -3,72 +3,48 @@ import { generateRandomString, sha256Base64Url } from "../../shared/crypto.js";
 import { verifyGoogleIdToken } from "../../shared/oidc.js";
 
 export async function onRequestGet(context) {
-  const provider = context.params.provider;
-  if (provider !== "google" && provider !== "github") {
-    return new Response("Not Found", { status: 404 });
-  }
+  const { request, env, params } = context;
+  const provider = params.provider;
+  const url = new URL(request.url);
+  const baseUrl = env.PUBLIC_BASE_URL;
 
-  const url = new URL(context.request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  const error = url.searchParams.get("error");
 
-  if (error || !code || !state) {
-    return new Response("Requisição de autenticação inválida", { status: 400, headers: { "Cache-Control": "no-store" } });
+  const cookies = parseCookies(request.headers.get("Cookie"));
+  const storedState = cookies["__Host-oauth_state"];
+
+  if (!code || !state || !storedState || state !== storedState) {
+    return new Response("Estado OAuth inválido ou reutilizado", { status: 400 });
   }
 
-  const cookies = parseCookies(context.request.headers.get("Cookie"));
-  const rawTxId = cookies["__Host-oauth-tx"];
-  if (!rawTxId) {
-    return new Response("Cookie de transação não encontrado", { status: 400, headers: { "Cache-Control": "no-store" } });
-  }
-
-  const env = context.env;
-  const baseUrl = env.PUBLIC_BASE_URL;
-  const txHash = await sha256Base64Url(rawTxId);
-  const stateHash = await sha256Base64Url(state);
-
-  const now = Math.floor(Date.now() / 1000);
-
-  const tx = await env.DB.prepare(
-    `SELECT * FROM oauth_transactions WHERE id_hash = ? AND provider = ? AND expires_at > ?`
-  ).bind(txHash, provider, now).first();
-
-  if (!tx || tx.state_hash !== stateHash) {
-    return new Response("Transação inválida, expirada ou estado alterado", { status: 400, headers: { "Cache-Control": "no-store" } });
-  }
-
-  await env.DB.prepare(`DELETE FROM oauth_transactions WHERE id_hash = ?`).bind(txHash).run();
-
-  const redirectUri = `${baseUrl}/oauth/callback/${provider}`;
-  let userProfile = { issuer: "", subject: "", email: null, displayName: null };
+  let userId = "";
+  let email = "";
 
   if (provider === "google") {
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
+        code,
         client_id: env.GOOGLE_CLIENT_ID,
         client_secret: env.GOOGLE_CLIENT_SECRET,
-        code: code,
-        grant_type: "authorization_code",
-        redirect_uri: redirectUri,
-        code_verifier: tx.code_verifier
+        redirect_uri: `${baseUrl}/oauth/callback/google`,
+        grant_type: "authorization_code"
       })
     });
 
     if (!tokenRes.ok) {
-      return new Response("Falha na troca de código com o Google", { status: 400, headers: { "Cache-Control": "no-store" } });
+      return new Response("Falha na troca de código com o Google", { status: 400 });
     }
 
     const tokenData = await tokenRes.json();
-    const idTokenClaims = await verifyGoogleIdToken(tokenData.id_token, env.GOOGLE_CLIENT_ID, tx.nonce);
+    const storedNonce = cookies["__Host-google_nonce"];
+    const payload = await verifyGoogleIdToken(tokenData.id_token, env.GOOGLE_CLIENT_ID, storedNonce);
 
-    userProfile.issuer = "https://accounts.google.com";
-    userProfile.subject = idTokenClaims.sub;
-    userProfile.email = idTokenClaims.email || null;
-    userProfile.displayName = idTokenClaims.name || null;
-
+    // Extrai o nome de exibição do Google (ex: "Marlon") ou o ID 'sub' se não houver nome
+    userId = payload.name || payload.given_name || payload.sub;
+    email = payload.email || "";
   } else if (provider === "github") {
     const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
       method: "POST",
@@ -79,83 +55,69 @@ export async function onRequestGet(context) {
       body: new URLSearchParams({
         client_id: env.GITHUB_CLIENT_ID,
         client_secret: env.GITHUB_CLIENT_SECRET,
-        code: code,
-        redirect_uri: redirectUri,
-        code_verifier: tx.code_verifier
+        code,
+        redirect_uri: `${baseUrl}/oauth/callback/github`
       })
     });
 
     if (!tokenRes.ok) {
-      return new Response("Falha na troca de código com o GitHub", { status: 400, headers: { "Cache-Control": "no-store" } });
+      return new Response("Falha na troca de código com o GitHub", { status: 400 });
     }
 
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
-    if (!accessToken) {
-      return new Response("Access token não retornado pelo GitHub", { status: 400, headers: { "Cache-Control": "no-store" } });
-    }
 
+    // Busca dados do perfil do utilizador no GitHub
     const userRes = await fetch("https://api.github.com/user", {
       headers: {
         "Authorization": `Bearer ${accessToken}`,
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "Cloudflare-Pages-OAuth-Lab",
-        "X-GitHub-Api-Version": "2026-03-10"
+        "User-Agent": "Cloudflare-Pages-App"
       }
     });
 
     if (!userRes.ok) {
-      return new Response("Falha ao obter perfil do GitHub", { status: 400, headers: { "Cache-Control": "no-store" } });
+      return new Response("Falha ao obter perfil do GitHub", { status: 400 });
     }
 
-    const githubUser = await userRes.json();
+    const userData = await userRes.json();
+    // Usa o Nome do perfil (ex: "Marlon"), ou o login (ex: "marlonnanico")
+    userId = userData.name || userData.login || String(userData.id);
+    email = userData.email || "";
 
-    const basicAuth = btoa(`${env.GITHUB_CLIENT_ID}:${env.GITHUB_CLIENT_SECRET}`);
-    const revokeRes = await fetch(`https://api.github.com/applications/${env.GITHUB_CLIENT_ID}/grant`, {
-      method: "DELETE",
-      headers: {
-        "Authorization": `Basic ${basicAuth}`,
-        "Content-Type": "application/json",
-        "User-Agent": "Cloudflare-Pages-OAuth-Lab",
-        "X-GitHub-Api-Version": "2026-03-10"
-      },
-      body: JSON.stringify({ access_token: accessToken })
-    });
-
-    if (revokeRes.status !== 204) {
-      return new Response("Falha ao revogar token do GitHub", { status: 500, headers: { "Cache-Control": "no-store" } });
+    // Se o e-mail não estiver público no perfil, procura nos e-mails da conta
+    if (!email) {
+      const emailsRes = await fetch("https://api.github.com/user/emails", {
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "User-Agent": "Cloudflare-Pages-App"
+        }
+      });
+      if (emailsRes.ok) {
+        const emails = await emailsRes.json();
+        const primary = emails.find(e => e.primary) || emails[0];
+        if (primary) email = primary.email;
+      }
     }
-
-    userProfile.issuer = "https://github.com";
-    userProfile.subject = String(githubUser.id);
-    userProfile.email = githubUser.email || null;
-    userProfile.displayName = githubUser.name || githubUser.login || null;
+  } else {
+    return new Response("Provedor não suportado", { status: 400 });
   }
 
+  // Grava a sessão com os dados extraídos no banco D1
   const rawSessionId = generateRandomString(32);
   const sessionHash = await sha256Base64Url(rawSessionId);
-  const sessionExpiresAt = now + 28800; // 8 horas
 
   await env.DB.prepare(
-    `INSERT INTO sessions (id_hash, issuer, subject, email, display_name, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    sessionHash,
-    userProfile.issuer,
-    userProfile.subject,
-    userProfile.email,
-    userProfile.displayName,
-    sessionExpiresAt,
-    now
-  ).run();
+    `INSERT INTO sessions (id_hash, provider, user_id, email, created_at) VALUES (?, ?, ?, ?, DATETIME('now'))`
+  ).bind(sessionHash, provider, userId, email).run();
 
   const headers = new Headers({
     "Location": baseUrl,
-    "Cache-Control": "no-store"
+    "Set-Cookie": `__Host-session=${rawSessionId}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=3600`
   });
 
-  headers.append("Set-Cookie", `__Host-oauth-tx=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
-  headers.append("Set-Cookie", `__Host-session=${rawSessionId}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800`);
+  // Limpa cookies do fluxo temporário do OAuth
+  headers.append("Set-Cookie", `__Host-oauth_state=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+  headers.append("Set-Cookie", `__Host-google_nonce=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
 
   return new Response(null, { status: 302, headers });
 }
