@@ -1,45 +1,45 @@
-export async function onRequestGet(context) {
-  const { request, env } = context;
-  const cookieHeader = request.headers.get("Cookie") || "";
-  const match = cookieHeader.match(/(?:^|;\s*)Host-session=([^;]*)/);
+import { parseCookies } from "../shared/cookies.js";
+import { sha256Base64Url } from "../shared/crypto.js";
 
-  if (!match) {
-    return new Response(JSON.stringify(null), {
+export async function onRequestGet(context) {
+  const cookies = parseCookies(context.request.headers.get("Cookie"));
+  const rawSessionId = cookies["__Host-session"];
+
+  if (!rawSessionId) {
+    return new Response(JSON.stringify({ error: "Não autenticado" }), {
       status: 401,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }
     });
   }
 
-  const sessionId = match[1];
-
-  async function sha256Hex(plain) {
-    const data = new TextEncoder().encode(plain);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
-  }
-
-  const sessionIdHash = await sha256Hex(sessionId);
+  const env = context.env;
+  const sessionHash = await sha256Base64Url(rawSessionId);
   const now = Math.floor(Date.now() / 1000);
 
   const session = await env.DB.prepare(
-    `SELECT * FROM sessions WHERE id_hash = ? AND expires_at > ?`
-  )
-    .bind(sessionIdHash, now)
-    .first();
+    `SELECT issuer, subject, email, display_name FROM sessions WHERE id_hash = ? AND expires_at > ?`
+  ).bind(sessionHash, now).first();
 
   if (!session) {
-    return new Response(JSON.stringify(null), {
+    return new Response(JSON.stringify({ error: "Sessão inválida ou expirada" }), {
       status: 401,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }
     });
   }
 
-  return new Response(JSON.stringify({
-    email: session.email,
-    displayName: session.display_name,
-    issuer: session.issuer
-  }), {
-    status: 200,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }
-  });
+  return new Response(
+    JSON.stringify({
+      issuer: session.issuer,
+      subject: session.subject,
+      email: session.email,
+      displayName: session.display_name
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store"
+      }
+    }
+  );
 }
