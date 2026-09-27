@@ -3,9 +3,10 @@ import { sha256Base64Url } from "../shared/crypto.js";
 
 export async function onRequestPost(context) {
   const env = context.env;
+  const baseUrl = env.PUBLIC_BASE_URL;
   const origin = context.request.headers.get("Origin");
 
-  if (origin !== env.PUBLIC_BASE_URL) {
+  if (origin !== baseUrl) {
     return new Response("Origem não permitida", { status: 403, headers: { "Cache-Control": "no-store" } });
   }
 
@@ -18,10 +19,10 @@ export async function onRequestPost(context) {
   }
 
   const headers = new Headers({
-    "Content-Type": "application/json",
+    "Location": baseUrl,
     "Cache-Control": "no-store",
     "Set-Cookie": `__Host-session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`
   });
 
-  return new Response(JSON.stringify({ status: "logged_out" }), { status: 200, headers });
+  return new Response(null, { status: 302, headers });
 }
